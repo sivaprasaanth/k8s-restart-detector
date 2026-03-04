@@ -1,0 +1,35 @@
+name: K8s CrashLoopBackOff Slack Alert
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"   # runs every 5 minutes
+  workflow_dispatch:
+
+jobs:
+  check-k8s:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Set up Kubernetes config
+      run: |
+        echo "${{ secrets.KUBE_CONFIG }}" | base64 --decode > $HOME/.kube/config
+
+    - name: Check for CrashLoopBackOff
+      id: check
+      run: |
+        STATUS=$(kubectl get pods -A --no-headers | grep CrashLoopBackOff || true)
+        if [ -z "$STATUS" ]; then
+          echo "status=ok" >> $GITHUB_OUTPUT
+        else
+          echo "status=crash" >> $GITHUB_OUTPUT
+          echo "logs<<EOF" >> $GITHUB_OUTPUT
+          echo "$STATUS" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+        fi
+
+    - name: Send Slack Notification
+      if: steps.check.outputs.status == 'crash'
+      run: |
+        curl -X POST -H 'Content-type: application/json' \
+        --data "{\"text\":\":rotating_light: *CrashLoopBackOff Detected in Cluster!* \n\`\`\`${{ steps.check.outputs.logs }}\`\`\`\"}" \
+        ${{ secrets.SLACK_WEBHOOK_URL }}
